@@ -263,3 +263,121 @@ two sexes track each other closely. Among participants with more than a high
 school education, the plateau is sustained later into the evening, and this
 group shows the highest peak values overall, with some observations above 75
 MIMS that do not appear in the other panels.
+
+## Problem 3
+
+```{r}
+citibike_df = 
+  bind_rows(
+    read_csv("./data/citibike/Jan 2020 Citi.csv") |> mutate(year = 2020, month = "January"),
+    read_csv("./data/citibike/July 2020 Citi.csv") |> mutate(year = 2020, month = "July"),
+    read_csv("./data/citibike/Jan 2024 Citi.csv") |> mutate(year = 2024, month = "January"),
+    read_csv("./data/citibike/July 2024 Citi.csv") |> mutate(year = 2024, month = "July")) |> 
+  janitor::clean_names() |> 
+  mutate(
+    month = factor(month, levels = c("January", "July")),
+    weekdays = factor(
+      weekdays,
+      levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")),
+    member_casual = factor(member_casual),
+    rideable_type = factor(rideable_type)) |> 
+  relocate(year, month)
+```
+
+These data contain `r format(nrow(citibike_df), big.mark = ",")` Citi Bike
+rides, representing 1% of all rides under four hours in January and July of
+2020 and 2024. Each row is one ride. The variables include a unique `ride_id`,
+the `rideable_type` (classic or electric), the `weekdays` on which the ride
+occurred, the ride `duration` in minutes, the start and end station names, and
+whether the rider was a member or casual user. The four source files do not
+include year or month as variables, so I added these when importing and
+combined the files with `bind_rows`. I converted month, weekday, membership
+status, and bike type to factors, ordering weekdays Monday through Sunday so
+that tables and plots display in a sensible order.
+
+```{r}
+citibike_df |> 
+  group_by(year, month, member_casual) |> 
+  summarize(n_rides = n(), .groups = "drop") |> 
+  pivot_wider(names_from = member_casual, values_from = n_rides) |> 
+  knitr::kable()
+```
+
+Ridership grew substantially between 2020 and 2024 and is consistently higher
+in July than in January. July 2024 had the most rides by a wide margin, with
+36,262 member rides and 10,894 casual rides. Members account for the large
+majority of rides in every period, though the casual share grows in summer:
+casual riders made up roughly 8% of January 2020 rides but 23% of July 2024
+rides. This pattern suggests members use the system year-round for routine
+travel while casual riders are more seasonal and likely include tourists and
+occasional users.
+
+```{r}
+citibike_df |> 
+  filter(year == 2024, month == "July") |> 
+  count(start_station_name) |> 
+  arrange(desc(n)) |> 
+  head(5) |> 
+  knitr::kable()
+```
+
+The five most popular starting stations in July 2024 were Pier 61 at Chelsea
+Piers (163 rides), University Pl & E 14 St (155), W 21 St & 6 Ave (152), West
+St & Chambers St (150), and W 31 St & 7 Ave (146). These are all in Manhattan,
+clustered around Chelsea, the Village, and Midtown, and several sit near the
+Hudson River Greenway, which is popular for recreational riding.
+
+```{r}
+citibike_df |> 
+  group_by(year, month, weekdays) |> 
+  summarize(median_duration = median(duration), .groups = "drop") |> 
+  ggplot(aes(x = weekdays, y = median_duration, color = month, group = month)) + 
+  geom_point() + 
+  geom_line() + 
+  facet_grid(. ~ year) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(
+    title = "Median ride duration by day of week, month, and year",
+    x = "Day of week",
+    y = "Median duration (minutes)",
+    color = "Month")
+```
+
+Three effects are visible. Month matters most: July rides are consistently
+longer than January rides in both years, by roughly 2 to 6 minutes depending
+on the day, which fits with better weather encouraging longer recreational
+trips. Year matters next: median durations in 2024 are shorter than in 2020
+across every day and month, with July 2020 weekend rides reaching about 16.5
+minutes compared to about 11 minutes in July 2024. This may reflect the
+system's expansion and a shift toward shorter, more routine trips, or the
+unusual conditions of 2020. Day of week has a smaller but consistent effect,
+with weekend rides longer than weekday rides, most dramatically in July 2020
+where Saturday and Sunday jump nearly three minutes above Friday.
+
+```{r, fig.width = 8}
+citibike_df |> 
+  filter(year == 2024) |> 
+  ggplot(aes(x = member_casual, y = duration, fill = rideable_type)) + 
+  geom_boxplot(outlier.alpha = .1) + 
+  coord_cartesian(ylim = c(0, 60)) + 
+  facet_grid(. ~ month) + 
+  labs(
+    title = "Ride duration in 2024 by month, membership, and bike type",
+    x = "Membership status",
+    y = "Duration (minutes)",
+    fill = "Bike type")
+```
+
+Casual riders take longer trips than members in both months and with both bike
+types, with median durations around 13 to 15 minutes compared to roughly 8 to
+10 for members. This fits the pattern in the earlier table: members use the
+system for routine travel while casual riders take more leisurely trips.
+
+July durations are slightly longer than January for every group. Bike type
+interacts with membership in an interesting way. Among casual riders, classic
+bikes have longer median durations than electric bikes, which makes sense
+since electric bikes cover the same distance faster. Among members, the two
+bike types are nearly identical in January, with electric slightly longer in
+July. Across all groups there is a long right tail of rides lasting well over
+an hour, more pronounced in July and among casual riders. Note that the y-axis
+is limited to 60 minutes for readability; no data were removed.
