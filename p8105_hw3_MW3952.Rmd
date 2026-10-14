@@ -133,3 +133,133 @@ The snowfall distributions are stable across the thirty years, with no
 apparent trend. Each year shows the same multimodal shape, with peaks at
 roughly 25, 50, and 76 mm, again the 1-, 2-, and 3-inch values, reflecting
 that measurements were recorded in inches and converted.
+
+## Problem 2
+
+```{r}
+nhanes_demo = 
+  read_csv("./data/nhanes_covar.csv", skip = 4) |> 
+  janitor::clean_names() |> 
+  filter(age >= 21) |> 
+  drop_na() |> 
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("male", "female")),
+    education = factor(
+      education,
+      levels = c(1, 2, 3),
+      labels = c("Less than high school", "High school equivalent", "More than high school")))
+
+nhanes_accel = 
+  read_csv("./data/nhanes_accel.csv") |> 
+  janitor::clean_names() |> 
+  pivot_longer(
+    min1:min1440,
+    names_to = "minute",
+    names_prefix = "min",
+    values_to = "mims") |> 
+  mutate(minute = as.numeric(minute))
+
+nhanes_df = 
+  inner_join(nhanes_demo, nhanes_accel, by = "seqn")
+```
+
+The demographic file begins with four rows of codebook notes, so I skipped
+those when importing. I excluded participants under 21 and those with missing
+demographic data, which leaves `r n_distinct(pull(nhanes_df, seqn))`
+participants. Sex and education were stored as numeric codes, so I converted
+both to factors with informative labels, ordering education from least to
+most. The accelerometer file stores one column per minute of the day, which is
+not tidy; I pivoted these into a `minute` variable and a `mims` variable so
+each row is one minute of observation for one participant. Joining the two
+gives `r format(nrow(nhanes_df), big.mark = ",")` rows.
+
+```{r}
+nhanes_demo |> 
+  count(education, sex) |> 
+  pivot_wider(names_from = sex, values_from = n) |> 
+  knitr::kable()
+```
+
+```{r}
+nhanes_demo |> 
+  ggplot(aes(x = age, fill = sex)) + 
+  geom_density(alpha = .5) + 
+  facet_grid(. ~ education) + 
+  labs(
+    title = "Age distribution by sex and education level",
+    x = "Age (years)",
+    y = "Density",
+    fill = "Sex")
+```
+
+The More than high school category is the largest, with 115 participants, and
+is roughly balanced between men and women. The Less than high school group is
+also balanced, while the High school equivalent group has noticeably more men
+than women (35 versus 23).
+
+The age distributions differ by education level. Participants with less than a
+high school education are concentrated at older ages, peaking near 70, and men
+and women have similar distributions. In the high school equivalent group, men
+skew younger than women, with a male peak near 30 and a female peak near 70.
+Among participants with more than a high school education, both sexes are
+younger overall, with a pronounced peak near age 30 that is stronger for
+women.
+
+```{r}
+nhanes_df |> 
+  group_by(seqn, sex, age, education) |> 
+  summarize(total_activity = sum(mims), .groups = "drop") |> 
+  ggplot(aes(x = age, y = total_activity, color = sex)) + 
+  geom_point(alpha = .5) + 
+  geom_smooth(se = FALSE) + 
+  facet_grid(. ~ education) + 
+  labs(
+    title = "Total daily activity by age, sex, and education",
+    x = "Age (years)",
+    y = "Total activity (MIMS)",
+    color = "Sex")
+```
+
+Total daily activity declines with age across all three education levels,
+though the shape of that decline differs. Among participants with less than a
+high school education, activity falls fairly steadily from roughly 17,000 MIMS
+in the twenties to about 9,000 by age 80, with men and women following similar
+trajectories. In the high school equivalent group, activity peaks in the
+thirties and forties, especially for women, who reach about 17,000 MIMS near
+age 40, before dropping sharply after 60. Among those with more than a high
+school education, activity stays relatively flat from the twenties through the
+fifties before declining, and women are consistently more active than men
+across most of the age range.
+
+One participant in the More than high school group recorded total activity
+near zero, which likely reflects a device malfunction or non-wear rather than
+genuine inactivity.
+
+```{r}
+nhanes_df |> 
+  ggplot(aes(x = minute, y = mims, color = sex)) + 
+  geom_point(alpha = .05) + 
+  geom_smooth(se = FALSE) + 
+  facet_grid(. ~ education) + 
+  scale_x_continuous(breaks = c(360, 720, 1080), labels = c("6am", "12pm", "6pm")) + 
+  labs(
+    title = "24-hour activity profiles by education level and sex",
+    x = "Time of day",
+    y = "MIMS",
+    color = "Sex")
+```
+
+All three education levels show the same basic circadian pattern: activity is
+near zero overnight, rises steeply between about 5am and 8am, plateaus through
+the day, and falls off after about 8pm. The overnight trough and daytime
+plateau are consistent across groups, which is expected since sleep and waking
+hours do not vary much by education.
+
+The differences between groups are in the level and shape of the daytime
+plateau. Participants with less than a high school education show a distinct
+midday peak around noon, with women more active than men for most of the day.
+In the high school equivalent group, the daytime profile is flatter and the
+two sexes track each other closely. Among participants with more than a high
+school education, the plateau is sustained later into the evening, and this
+group shows the highest peak values overall, with some observations above 75
+MIMS that do not appear in the other panels.
